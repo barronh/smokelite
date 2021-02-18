@@ -93,7 +93,30 @@ def fractional_overlap(
     if verbose > 0:
         print('Making polygons...', flush=True)
     shapes = [shpf.shape(rn) for rn in recordnums]
-    polygons = [Polygon(s.points) for s in shapes]
+    polygons = []
+    for s in shapes:
+        edges = np.append(s.parts, len(s.points))
+        starts = edges[:-1]
+        ends = edges[1:]
+        # Currently assuming that the largest number of points is the outer
+        # shell. One can imagine a case where this is not true (a complex hole
+        # in a square state), but I am not sure what else to do at this point.
+        #
+        # This is probably the weakest point, and could be improved by
+        # moving to fiona. Right now, shapley and pyshp are easier requirements
+        # to fulfill.
+        npoints = ends - starts
+        mainidx = np.argmax(npoints)
+        p = Polygon(
+            s.points[starts[mainidx]:ends[mainidx]],
+            holes=[
+                s.points[st:en]
+                for i, (st, en) in enumerate(zip(starts[:], ends[:]))
+                if i != mainidx
+            ]
+        )
+        polygons.append(p)
+
     if buffer is not None:
         if verbose > 0:
             print(f'Buffer shapes with buffer {buffer}...', flush=True)
@@ -103,7 +126,10 @@ def fractional_overlap(
             print(f'Simplifying shapes with simplify {simplify}...', flush=True)
         polygons = [p.simplify(simplify) for p in polygons]
     # ppolygons = [prep(p) for p in polygons]
-    if len(polygons) > 1:
+    # If there are multiple, then create an puberpoly
+    # If there are none, the uberpoly is empty
+    # If there is just one, don't waste the computation.
+    if len(polygons) > 1 or len(polygons) == 0:
         if verbose > 0:
             print(f'Cascading union...', flush=True)
         uberpoly = cascaded_union(polygons)
