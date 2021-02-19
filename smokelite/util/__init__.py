@@ -1,5 +1,6 @@
 __all__ = ['load_dataframe', 'fractional_overlap']
 
+
 def plotmap(gf, plotvar, label=None, ax=None, gridspec_kw=None, **kwds):
     """
     Arguments
@@ -40,6 +41,7 @@ def plotmap(gf, plotvar, label=None, ax=None, gridspec_kw=None, **kwds):
         label = getattr(plotvar, 'units', 'unknown')
     fig.colorbar(p, label=label)
     return ax
+
 
 def fractional_overlap(
     ifile, shapepath, queryfield, query, key='MINE', fractional=True,
@@ -149,7 +151,7 @@ def fractional_overlap(
         polygons = [p.buffer(buffer) for p in polygons]
     if simplify is not None:
         if verbose > 0:
-            print(f'Simplifying shapes with simplify {simplify}...', flush=True)
+            print(f'Simplifying shapes: simplify({simplify})...', flush=True)
         polygons = [p.simplify(simplify) for p in polygons]
     # The optimal method for calculation of overlap is a complex problem that
     # will likely depend on the number of polygons and the structure/complexity
@@ -169,7 +171,7 @@ def fractional_overlap(
     else:
         if len(polygons) > 1 or len(polygons) == 0:
             if verbose > 0:
-                print(f'Cascading union...', flush=True)
+                print('Cascading union...', flush=True)
             uberpoly = cascaded_union(polygons)
         else:
             uberpoly = polygons[0]
@@ -255,6 +257,10 @@ def load_dataframe(
         tuple of strings indicating dimensions for new variables
     coords : bool
         If True, copy dimension variables as IN_{dim}
+    outkeys : list or None
+        If None, all columns will be exported. If a list, only those
+        keys will be output.
+
     Returns
     -------
     pfile : PseudoNetCDFFile
@@ -278,7 +284,10 @@ def load_dataframe(
         for k in dims
     ])
 
-    for outkey in incols:
+    if outkeys is None:
+        outkeys = incols
+
+    for outkey in outkeys:
         outval = gdf[outkey]
         if outkey in gkeys:
             if not coords:

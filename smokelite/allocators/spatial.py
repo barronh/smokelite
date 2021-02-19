@@ -1,13 +1,30 @@
 import PseudoNetCDF as pnc
 import pandas as pd
+import numpy as np
 
 
 class Spatial:
     def __init__(
-        self, griddesc, gdnam, nominaldate='1970-01-01', **kwds
+        self, gridpath, nominaldate='1970-01-01', format='griddesc', **kwds
     ):
+        """
+        Arguments
+        ---------
+        gridpath : str
+            path to a GRIDDESC file
+        nominaldate : str
+            Date for spatial and regional files (default: '1970-01-01')
+        format : str
+            griddesc, by default, but can be any ioapi_base class
+        kwds : mappable
+            Keywords for opening GRIDDESC. For example, GDNAM if there are
+            multiple domains.
+
+        Returns
+        -------
+        """
         nominaldate = pd.to_datetime(nominaldate)
-        gf = pnc.pncopen(griddesc, format='griddesc', GDNAM=gdnam)
+        gf = pnc.pncopen(gridpath, format=format, **kwds)
         gf.SDATE = int(nominaldate.strftime('%Y%j'))
         gf.STIME = int(nominaldate.strftime('%H%M%S'))
         gf.TSTEP = 10000
@@ -25,8 +42,66 @@ class Spatial:
         dw[:] = 1.
         self.regions = ['DOMAINWIDE']
 
+    def plotmap(self, key, label=None, ax=None, infile='either', gridspec_kw=None, **kwds):
+        from ..util import plotmap
+        if infile == 'either':
+            try_spatial = try_region = True
+        elif infile == 'region':
+            try_spatial = False
+            try_region = True
+        elif infile == 'spatial':
+            try_spatial = True
+            try_region = False
+        else:
+            raise ValueError(
+                f'infile must be either, region or spatial; got {infile}'
+            )
+        if try_region and key in self.regionfile.variables:
+            plotf = self.regionfile
+        elif try_spatial and key in self.spatialfile.variables:
+            plotf = self.spatialfile
+        else:
+            raise ValueError(
+                f'Could not find variable {key} in {infile}'
+            )
+        return plotmap(
+            plotf, plotf.variables[key][0, 0], label=label, ax=ax,
+            gridspec_kw=gridspec_kw, **kwds
+        )
+
+
+    def regions_fromindex(self, idx_var, idx2name):
+        """
+        Quick function to conver cell codes to fraction-like (0 or 1) variables
+
+        Arguments
+        ---------
+        idx_var : PseudoNetCDFVariable
+            variable (TSTEP, LAY, ROW, COL) with indices in idx2name where
+            cells that have each idx will be identified as 100% name
+        idx2name : mappable
+            key/value pairs where the key is the value in idx_var and name is
+            the name for a variable with those assignments.
+
+        Returns
+        -------
+        None
+        """
+        for idx, name in idx2name.items():
+            ivar = self.regionfile.createVariable(
+                name, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
+                long_name=name.ljust(16), units='fraction',
+                var_desc=f'{name} (0: not mine; 1: all mine)'.ljust(80),
+            )
+            dimidx = list(np.where(idx_var == idx))
+            while len(dimidx) < 4:
+                dimidx.insert(0, slice(None))
+            dimidx = tuple(dimidx)
+            ivar[dimidx] = 1
+
     def region_fromshapefile(
-        self, shapepath, queryfield, query, key, fractional=True, simplify=None, buffer=0, use_tree=None, verbose=0
+        self, shapepath, queryfield, query, key, fractional=True,
+        simplify=None, buffer=0, use_tree=None, verbose=0
     ):
         "Thin wrapper on smokelite.util.fractional_overlap; see its docs"
         from ..util import fractional_overlap
@@ -37,15 +112,58 @@ class Spatial:
         )
 
     def add_spatialvariables(self, spatialdf=None, spatialf=None, keys=None):
-        sptlf = self.spatialfile
-        if spatialf is not None and spatialdf is not None:
+        """
+        Wrapper to add_variables
+            self.add_variables(self.spatialfile, ...)
+        """
+        return self.add_variables(
+            destf=self.spatialfile, df=spatialdf, nf=spatialf, keys=keys
+        )
+
+    def add_regionvariables(self, regiondf=None, regionf=None, keys=None):
+        """
+        Wrapper to add_variables
+            self.add_variables(self.spatialfile, ...)
+        """
+        return self.add_variables(
+            destf=self.regionfile, df=regiondf, nf=regionf, keys=keys
+        )
+
+    def add_variables(self, destf, df=None, nf=None, keys=None):
+        """
+        Quick function to conver cell codes to fraction-like (0 or 1) variables
+
+        Arguments
+        ---------
+        destf : PseudoNetCDFFile or None
+            Destination file (usually, regionfile or spatialfile
+        df : pandas.DataFrame or None
+            If provided, must have columns matching a subset of dimensions
+            (TSTEP, LAY, ROW, COL)
+        nf : PseudoNetCDFFile or None
+            If provided, must match dimensions of destf and keys
+        keys : list or None
+            If None, all columns or variables will be used. If a list, then
+            only these keys will be used.
+
+        Returns
+        -------
+        None
+        """
+        if nf is not None and df is not None:
             raise KeyError('supply either spatialdf or spatialvar; got both')
-        if spatialf is not None:
+        if nf is not None:
+            if keys is None:
+                keys = [
+                    k for k in nf.variables.items()
+                    if v.dimensions == ('TSTEP', 'LAY', 'ROW', 'COL')
+                ]
+
             for key in keys:
-                sptlf.copyVariable(spatialf.variables[key], key=key)
-        if spatialdf is not None:
+                destf.copyVariable(nf.variables[key], key=key)
+        if df is not None:
             from ..util import load_dataframe
-            load_dataframe(sptlf, spatialdf)
+            load_dataframe(destf, df, keys=keys)
 
     def allocate(self, infile, alloc_keys, outpath=None, **save_kwds):
         """
