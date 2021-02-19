@@ -1,5 +1,45 @@
 __all__ = ['load_dataframe', 'fractional_overlap']
 
+def plotmap(gf, plotvar, label=None, ax=None, gridspec_kw=None, **kwds):
+    """
+    Arguments
+    ---------
+    gf : PseudoNetCDFFile
+        used for getproj command
+    plotvar : PseudoNetCDFVariable
+        used for values and units
+    label : str
+        Override units for label
+    ax : matplotlib.axes.Axes
+        used for map; if none, subplots(1, 1) is used with gridspec_kw
+    gridspec_kw : mappable
+        keywords for generating new axes
+    kwds : mappable
+        keywords for pcolormesh
+
+    Returns
+    -------
+    ax : maptlotlib.axes.Axes
+        axes with plot and map outline
+    """
+    import matplotlib.pyplot as plt
+    try:
+        import pycno
+        has_pycno = True
+    except ImportError:
+        has_pycno = False
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, gridspec_kw=gridspec_kw)
+    p = ax.pcolormesh(plotvar, **kwds)
+    if has_pycno:
+        proj = gf.getproj(withgrid=True)
+        cno = pycno.cno(proj=proj)
+        cno.draw()
+    if label is None:
+        label = getattr(plotvar, 'units', 'unknown')
+    fig.colorbar(p, label=label)
+    return ax
 
 def fractional_overlap(
     ifile, shapepath, queryfield, query, key='MINE', fractional=True,
@@ -35,7 +75,7 @@ def fractional_overlap(
     from types import FunctionType
     import numpy as np
     import shapefile as shp
-    from shapely.geometry import Polygon, Point
+    from shapely.geometry import Polygon, Point, shape
     from shapely.prepared import prep
     from shapely.ops import cascaded_union
 
@@ -95,26 +135,7 @@ def fractional_overlap(
     shapes = [shpf.shape(rn) for rn in recordnums]
     polygons = []
     for s in shapes:
-        edges = np.append(s.parts, len(s.points))
-        starts = edges[:-1]
-        ends = edges[1:]
-        # Currently assuming that the largest number of points is the outer
-        # shell. One can imagine a case where this is not true (a complex hole
-        # in a square state), but I am not sure what else to do at this point.
-        #
-        # This is probably the weakest point, and could be improved by
-        # moving to fiona. Right now, shapley and pyshp are easier requirements
-        # to fulfill.
-        npoints = ends - starts
-        mainidx = np.argmax(npoints)
-        p = Polygon(
-            s.points[starts[mainidx]:ends[mainidx]],
-            holes=[
-                s.points[st:en]
-                for i, (st, en) in enumerate(zip(starts[:], ends[:]))
-                if i != mainidx
-            ]
-        )
+        p = shape(s)
         polygons.append(p)
 
     if buffer is not None:
