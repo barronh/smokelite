@@ -239,7 +239,7 @@ def fractional_overlap(
 
 def load_dataframe(
     pfile, df, func='mean', units='unknown',
-    dims=None, coords=False
+    dims=None, coords=False, keys=None
 ):
     """
     Arguments
@@ -257,7 +257,7 @@ def load_dataframe(
         tuple of strings indicating dimensions for new variables
     coords : bool
         If True, copy dimension variables as IN_{dim}
-    outkeys : list or None
+    keys : list or None
         If None, all columns will be exported. If a list, only those
         keys will be output.
 
@@ -284,10 +284,10 @@ def load_dataframe(
         for k in dims
     ])
 
-    if outkeys is None:
-        outkeys = incols
+    if keys is None:
+        keys = incols
 
-    for outkey in outkeys:
+    for outkey in keys:
         outval = gdf[outkey]
         if outkey in gkeys:
             if not coords:
