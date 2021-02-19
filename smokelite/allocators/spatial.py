@@ -93,7 +93,7 @@ class Spatial:
                 long_name=name.ljust(16), units='fraction',
                 var_desc=f'{name} (0: not mine; 1: all mine)'.ljust(80),
             )
-            dimidx = list(np.where(idx_var == idx))
+            dimidx = list(np.where(idx_var[:] == idx))
             while len(dimidx) < 4:
                 dimidx.insert(0, slice(None))
             dimidx = tuple(dimidx)
