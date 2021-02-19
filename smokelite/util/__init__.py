@@ -43,7 +43,7 @@ def plotmap(gf, plotvar, label=None, ax=None, gridspec_kw=None, **kwds):
 
 def fractional_overlap(
     ifile, shapepath, queryfield, query, key='MINE', fractional=True,
-    simplify=None, buffer=0, verbose=0
+    simplify=None, buffer=0, use_tree=None, verbose=0
 ):
     """
     Arguments
@@ -66,6 +66,11 @@ def fractional_overlap(
     buffer : float or None
         If None, do not simplify. If float, buffer. This can be useful to
         simplify self-intersecting polygons.
+    use_tree : bool or none
+        If None, use_tree will be set to true if there are more than 100
+        polygons.
+    verbose : int
+        Counter for verbosity.
 
     Returns
     -------
@@ -146,30 +151,47 @@ def fractional_overlap(
         if verbose > 0:
             print(f'Simplifying shapes with simplify {simplify}...', flush=True)
         polygons = [p.simplify(simplify) for p in polygons]
-    # ppolygons = [prep(p) for p in polygons]
-    # If there are multiple, then create an puberpoly
-    # If there are none, the uberpoly is empty
-    # If there is just one, don't waste the computation.
-    if len(polygons) > 1 or len(polygons) == 0:
-        if verbose > 0:
-            print(f'Cascading union...', flush=True)
-        uberpoly = cascaded_union(polygons)
+    # The optimal method for calculation of overlap is a complex problem that
+    # will likely depend on the number of polygons and the structure/complexity
+    # of the polygons. For this work, I implemented three possible solutions
+    # and have empirically determined which one will be used.
+    # 1. If there are many, the cascaded_union becomes prohibitive.
+    #    In this case, use a STRtree to quickly query close ppolygons
+    # 2. If there are multiple (not many), then create an puberpoly.  If there
+    #    are none, the uberpoly is empty so skip and this is also fast.
+    # 3. If there is just one, don't waste the computation.
+    if use_tree is None:
+        use_tree = len(polygons) > 100
+
+    if use_tree:
+        from shapely.strtree import STRtree
+        tree = STRtree(polygons)
     else:
-        uberpoly = polygons[0]
-    if verbose > 0:
-        print('Making envelope...', flush=True)
-    envelope = uberpoly.envelope
-    if verbose > 0:
-        print('Making prepared uber polygon...', flush=True)
-    puberpoly = prep(uberpoly)
+        if len(polygons) > 1 or len(polygons) == 0:
+            if verbose > 0:
+                print(f'Cascading union...', flush=True)
+            uberpoly = cascaded_union(polygons)
+        else:
+            uberpoly = polygons[0]
+        if verbose > 0:
+            print('Making envelope...', flush=True)
+        envelope = uberpoly.envelope
+        if verbose > 0:
+            print('Making prepared uber polygon...', flush=True)
+        puberpoly = prep(uberpoly)
     if verbose:
         onepercent = int(ifile.NROWS * ifile.NCOLS / 100)
         print('Processing cells', flush=True)
+
+    if verbose > 0:
+        print('1234567890' * 10, flush=True)
+
     for j, i in np.ndindex(ifile.NROWS, ifile.NCOLS):
-        if verbose > 0:
+        if verbose > 0 and (verbose < 3 or not use_tree):
             n = j * ifile.NCOLS + i
             if n % onepercent == 0:
                 print('.', end='', flush=True)
+
         if fractional:
             gpoly = Polygon([
                 [LOND[j + 0, i + 0], LATD[j + 0, i + 0]],
@@ -178,17 +200,36 @@ def fractional_overlap(
                 [LOND[j + 1, i + 0], LATD[j + 1, i + 0]],
                 [LOND[j + 0, i + 0], LATD[j + 0, i + 0]],
             ])
-            if envelope.intersects(gpoly):
-                if puberpoly.intersects(gpoly):
-                    intx = gpoly.intersection(uberpoly)
-                    farea = intx.area / gpoly.area
-                    mine[0, 0, j, i] = farea
+            if use_tree:
+                hits = tree.query(gpoly)
+                if verbose > 2:
+                    print(len(hits), end='.', flush='True')
+                for hit in hits:
+                    if hit.intersects(gpoly):
+                        intx = gpoly.intersection(hit)
+                        farea = intx.area / gpoly.area
+                        mine[0, 0, j, i] += farea
+            else:
+                if envelope.intersects(gpoly):
+                    if puberpoly.intersects(gpoly):
+                        intx = gpoly.intersection(uberpoly)
+                        farea = intx.area / gpoly.area
+                        mine[0, 0, j, i] = farea
         else:
             gp = Point(LON[j, i], LAT[j, i])
-            if envelope.intersects(gpoly):
-                if puberpoly.contains(gp):
-                    if uberpoly.contains(gp):
+            if use_tree:
+                hits = tree.query(gp)
+                if verbose > 2:
+                    print(len(hits), flush='True')
+
+                for hit in hits:
+                    if hit.contains(gp):
                         mine[0, 0, j, i] = 1
+            else:
+                if envelope.intersects(gpoly):
+                    if puberpoly.contains(gp):
+                        mine[0, 0, j, i] = 1
+
     if verbose > 0:
         print()
     return mine

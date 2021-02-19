@@ -26,13 +26,14 @@ class Spatial:
         self.regions = ['DOMAINWIDE']
 
     def region_fromshapefile(
-        self, shapepath, queryfield, query, key, fractional=True, verbose=0, simplify=None, buffer=0
+        self, shapepath, queryfield, query, key, fractional=True, simplify=None, buffer=0, use_tree=None, verbose=0
     ):
-        "Thin wrapper on fractional_overlap"
+        "Thin wrapper on smokelite.util.fractional_overlap; see its docs"
         from ..util import fractional_overlap
         return fractional_overlap(
             ifile=self.regionfile, shapepath=shapepath, queryfield=queryfield,
-            query=query, key=key, fractional=fractional, verbose=verbose, simplify=simplify, buffer=buffer
+            query=query, key=key, fractional=fractional, simplify=simplify,
+            buffer=buffer, use_tree=use_tree, verbose=verbose
         )
 
     def add_spatialvariables(self, spatialdf=None, spatialf=None, keys=None):
