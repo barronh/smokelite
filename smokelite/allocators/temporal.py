@@ -617,10 +617,10 @@ R0: Preliminary data
         outf = ef.subset([])
         nsteps = 1
         if monthly:
-            nsteps = nsteps * 12
+            nsteps = nsteps * 1
             tstep = 30*240000
         if dayofweek:
-            nsteps = nsteps * 7
+            nsteps = nsteps * 1
             tstep = 240000
         if diurnal:
             nsteps = nsteps * 25
