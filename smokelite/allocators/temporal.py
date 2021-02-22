@@ -615,7 +615,18 @@ R0: Preliminary data
             print('Creating output template', flush=True)
 
         outf = ef.subset([])
-        outf.createDimension('TSTEP', 25).setunlimited(True)
+        nsteps = 1
+        if monthly:
+            nsteps = nsteps * 12
+            tstep = 30*240000
+        if dayofweek:
+            nsteps = nsteps * 7
+            tstep = 240000
+        if diurnal:
+            nsteps = nsteps * 25
+            tstep = 10000
+
+        outf.createDimension('TSTEP', nsteps).setunlimited(True)
 
         if verbose > 0:
             print('Calculating composite factor', flush=True)
@@ -638,6 +649,7 @@ R0: Preliminary data
         if format == 'ioapi':
             outf.SDATE = int(refdate.strftime('%Y%j'))
             outf.STIME = int(refdate.strftime('%H%M%S'))
+            outf.TSTEP = tstep
             outf.updatemeta()
             outf.updatetflag(overwrite=True)
 
@@ -660,7 +672,7 @@ def run():
     aa = parser.add_argument
     aa('-v', '--verbose', action='count', default=0)
     aa('--no-month', dest='month', default=True, action='store_false')
-    aa('--no-dayofwek', dest='dayofweek', default=True, action='store_false')
+    aa('--no-dayofweek', dest='dayofweek', default=True, action='store_false')
     aa('--no-diurnal', dest='diurnal', default=True, action='store_false')
     aa('-O', '--overwrite', default=False, action='store_true')
     aa('-i', '--include', default=[], action='append')
