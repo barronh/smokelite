@@ -525,9 +525,13 @@ R0: Preliminary data
             path for output to be saved. If None, outf will be returned and not
             saved
         alloc_keys : mappable  or str
-            each key should exist in the vertical allocation file, and values
-            should correspond to variables in the infile. If is a str, then
-            all allocatable variables will be asisgned to that csv key.
+            alloc_keys key/value pairs map allocation variables (e.g., ENERGY)
+            to variables in infile to allocate temporally. Each key should
+            be in monthlyfile/dayofweekfile/diurnalfile variables. And each
+            value is a list of variables in infile. One allocation variable can
+            be assigned None instead of a list, which results in all unassigned
+            variables being used. If alloc_keys is a str, this is equivalent to
+            `alloc_keys={alloc_keys: None}`
         monthly : bool
             apply monthly scaling. If file already has months, use month=False
             and time=m to apply other scaling to time m.

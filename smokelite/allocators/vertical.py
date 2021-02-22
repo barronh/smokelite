@@ -179,9 +179,10 @@ class Vertical:
         """
         Arguments
         ---------
-        csvpath : str
-            path to vertical allocation file. Each key represents a value to
-            use as a fractional allocation to this level.
+        csvpath : str or pd.DataFrame
+            path to vertical allocation file or DataFrame already opened. Each
+            key represents a value to use as a fractional allocation to this
+            level.
         outvglvls : array
             Has nz+1 values, which will match the output file. The top edges
             outvglvls[1:] will be use for interpolation
@@ -215,9 +216,18 @@ class Vertical:
         self.outvgtop = outvgtop
         self.psfc = psfc
 
-        self.indf = pd.read_csv(csvpath, **read_kwds)
+        if isinstance(csvpath, pd.DataFrame):
+            self.indf = csvpath
+        else:
+            self.indf = pd.read_csv(csvpath, **read_kwds)
+
         if metakeys is None:
-            metakeys = [self.sigmakey, self.pressurekey, 'Alt', 'L']
+            metakeys = [
+                key
+                for key in
+                [self.sigmakey, self.pressurekey, 'Alt', 'L']
+                if key in self.indf.columns
+            ]
 
         self.metakeys = metakeys
 
@@ -227,8 +237,9 @@ class Vertical:
                 pressurekey=pressurekey, inplace=True
             )
 
+        # Interp_va ignores first outvglvls level automatically
         outdf = interp_va(
-            self.indf, outvglvls[1:], vgtop=outvgtop, psfc=psfc,
+            self.indf, outvglvls, vgtop=outvgtop, psfc=psfc,
             metakeys=metakeys, verbose=self.verbose
         )
         outdf.loc[:, 'LAYER1'] = 0
@@ -237,7 +248,8 @@ class Vertical:
         layerused[0] = True
         if not prune:
             layerused[:] = True
-        self.outdf = outdf.loc[layerused]
+        usedupto = np.cumsum(layerused[::-1])[::-1] > 0
+        self.outdf = outdf.loc[usedupto]
 
     def allocate(self, infile, alloc_keys, outpath=None, save_kwds=None):
         """
@@ -246,9 +258,13 @@ class Vertical:
         infile : str or PseudoNetCDFFile
             file to allocate vertically
         alloc_keys : mappable  or str
-            each key should exist in the vertical allocation file, and values
-            should correspond to variables in the infile. If is a str, then
-            all allocatable variables will be asisgned to that csv key.
+            alloc_keys are mappings of vertical allocation variables to the
+            variables they should be used to allocate. Each key should exist in
+            the vertical allocation file (csvpath), and values should
+            correspond to variables in the infile. One key may be mapped to
+            None, which will apply this key to all unmapped infile variables.
+            If alloc_keys is a str, this is the same as
+            `alloc_keys={alloc_keys: None}`.
         outpath : str or None
             path to save output
         save_kwds : mappable
@@ -260,6 +276,62 @@ class Vertical:
             Has each variable associated with a csv key in alloc_keys as a
             variable, where the old file has 1 layer, the new file has nz
             layers.
+
+        Examples
+        --------
+        1. The following example would vertically allocate only NOX_ENERGY
+        based on the ENERGY vertical profile.
+
+        import pandas as pd
+        import numpy as np
+        import PseudoNetCDF as pnc
+        import smokelite
+
+        vadf = pd.DataFrame.from_dict({
+            'Sigma': [0.99, .98, .97, .95, 0.9],
+            'Pressure': [100361.75, 99398.5 , 98435.25, 96508.75, 91692.5],
+            'ENERGY': [.12, .13, .26, .28, .21]
+        })
+        infile = pnc.pncopen(
+            '../../../Downloads/GRIDDESC', format='griddesc', GDNAM='36US3'
+        ).subset([])
+        enevar = infile.createVariable(
+            'NOX_ENERGY', 'f', ('TSTEP', 'LAY', 'ROW', 'COL')
+            long_name='NOX_ENERGY', var_desc='Energy NOx', units='TgNO2/yr'
+        )
+        enevar[:] = 1
+        othvar = infile.createVariable(
+            'NOX_OTH', 'f', ('TSTEP', 'LAY', 'ROW', 'COL')
+            long_name='NOX_OTH', var_desc='Other NOx', units='TgNO2/yr'
+
+        )
+        othvar[:] = 2
+        infile.SDATE = 2017001
+        infile.STIME = 0
+        infile.TSTEP = 0
+        infile.updatetflag()
+
+        va = smokelite.Vertical(
+            vadf, csvvgtop=5000,
+            outvglvls=np.linspace(1, .9, 14), outvgtop=5000.
+        )
+
+
+        # Allocate NOX_ENERGY using ENERGY
+        enefile = va.allocate(
+            infile, alloc_keys=dict(
+                ENERGY=['NOX_ENERGY',]
+            )
+        )
+
+        # Allocate all variables using LAYER1
+        lay1file = va.allocate(infile, alloc_keys=dict(LAYER1=None))
+
+        # Simultaneously NOX_ENERGY using ENERGY and all other variables using
+        # LAYER1
+        bothfile = va.allocate(
+            infile, alloc_keys=dict(LAYER1=None, ENERGY=['NOX_ENERGY',])
+        )
         """
         if save_kwds is None:
             save_kwds = dict(
@@ -295,13 +367,18 @@ class Vertical:
 
         sectorfiles = []
         for sector, varkeys in alloc_keys.items():
-            layerfractions = self.outdf.loc[:, sector]
+            layerfractions = self.outdf.loc[:, sector].values
             sectorfile = make3d(
                 infile.subset(varkeys), layerfractions, self.outvglvls
             )
             sectorfiles.append(sectorfile)
 
-        outfile = sectorfiles[0].stack(sectorfiles[1:], stackdim='TSTEP')
+        outfile = sectorfiles[0]
+        for sectorfile in sectorfiles[1:]:
+            for key, var in sectorfile.variables.items():
+                if key != 'TFLAG':
+                    outfile.copyVariable(var, key=key)
+
         if outpath is not None:
             return outfile.save(outpath, **save_kwds)
         else:

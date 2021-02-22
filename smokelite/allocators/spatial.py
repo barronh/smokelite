@@ -42,7 +42,10 @@ class Spatial:
         dw[:] = 1.
         self.regions = ['DOMAINWIDE']
 
-    def plotmap(self, key, label=None, ax=None, infile='either', gridspec_kw=None, **kwds):
+    def plotmap(
+        self, key, label=None, ax=None, infile='either', gridspec_kw=None,
+        **kwds
+    ):
         from ..util import plotmap
         if infile == 'either':
             try_spatial = try_region = True
@@ -68,7 +71,6 @@ class Spatial:
             plotf, plotf.variables[key][0, 0], label=label, ax=ax,
             gridspec_kw=gridspec_kw, **kwds
         )
-
 
     def regions_fromindex(self, idx_var, idx2name):
         """
@@ -155,7 +157,7 @@ class Spatial:
         if nf is not None:
             if keys is None:
                 keys = [
-                    k for k in nf.variables.items()
+                    k for k, v in nf.variables.items()
                     if v.dimensions == ('TSTEP', 'LAY', 'ROW', 'COL')
                 ]
 
@@ -173,9 +175,16 @@ class Spatial:
             path to netcdf file (or file) to use as input (format keyword used
             as a modifier)
         alloc_keys : mappable  or str
-            each key should exist in the vertical allocation file, and values
-            should correspond to variables in the infile. If is a str, then
-            all allocatable variables will be asisgned to that csv key.
+            alloc_keys key/value pairs map region and spatial allocation
+            variables (e.g., DOMAINWIDE and POP) to variables in infile to
+            allocate spatially. Each key should be a tuple of region and
+            spatial variable (e.g., ('DOMAINWIDE', 'POPULATION')). The region
+            key must exist as a variable in self.regionfile and the spatial
+            variable must exist in self.spatialfile. Each value should be a
+            list of variables in infile to pair with the region/spatial pair.
+            One allocation variable can be assigned None instead of a list,
+            which results in all unassigned variables being used. If alloc_keys
+            is a str, this is equivalent to `alloc_keys={alloc_keys: None}`
         outpath : str or None
             path for output to be saved. If None, outf will be returned and not
             saved
