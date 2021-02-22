@@ -154,7 +154,8 @@ def make3d(infile, layerfractions, vglvls):
     layerfractions : array
         layer fractions should have one dimension and sum to 1
     vglvls : array
-        sigmatops are the top edge values to be used for VGLVLS
+        sigmatops are the edge values to be used for VGLVLS, extra values
+        (i.e., more than layerfractions.shape[0] + 1) will be pruned
 
     Returns
     -------
@@ -165,7 +166,7 @@ def make3d(infile, layerfractions, vglvls):
     for key, var in outfile.variables.items():
         if key != 'TFLAG':
             var[:] *= layerfractions[None, :, None, None]
-    outfile.VGLVLS = vglvls.astype('f')
+    outfile.VGLVLS = vglvls[:nz + 1].astype('f')
     outfile.NLAYS = nz
     return outfile
 
