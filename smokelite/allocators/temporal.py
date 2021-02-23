@@ -649,10 +649,10 @@ R0: Preliminary data
                 )
                 outvar[:] = invar[time] * factor
 
+        outf.SDATE = int(refdate.strftime('%Y%j'))
+        outf.STIME = int(refdate.strftime('%H%M%S'))
+        outf.TSTEP = tstep
         if format == 'ioapi':
-            outf.SDATE = int(refdate.strftime('%Y%j'))
-            outf.STIME = int(refdate.strftime('%H%M%S'))
-            outf.TSTEP = tstep
             outf.updatemeta()
             outf.updatetflag(overwrite=True)
 
