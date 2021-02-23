@@ -615,6 +615,9 @@ R0: Preliminary data
             print('Creating output template', flush=True)
 
         outf = ef.subset([])
+        if 'TFLAG' in outf.variables:
+            del outf.variables['TFLAG']
+
         nsteps = 1
         if monthly:
             nsteps = nsteps * 1
