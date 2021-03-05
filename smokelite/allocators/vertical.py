@@ -71,10 +71,10 @@ def interp_va(
         vertical allocation data consistent with vglvls
     """
     from collections import OrderedDict
-    x = vglvls[1:]
+    x = vglvls[:]
     if metakeys is None:
         metakeys = ['Sigma', 'Alt', 'L']
-    xp = (va_df.Pressure.values - vgtop) / (psfc - vgtop)
+    xp = np.append(1, (va_df.Pressure.values - vgtop) / (psfc - vgtop))
 
     if xp[-1] < xp[0]:
         xp = xp[::-1]
@@ -84,10 +84,10 @@ def interp_va(
     out = OrderedDict()
 
     for key in va_df.columns:
-        fp = va_df[key].values
+        fp = np.cumsum(np.append(0, va_df[key].values))
         if invert:
             fp = fp[::-1]
-        out[key] = np.interp(x, xp, fp, left=0)
+        out[key] = np.diff(np.interp(x, xp, fp, left=0, right=0))
         if key not in metakeys:
             out[key] /= out[key].sum()
         if verbose:
@@ -97,7 +97,7 @@ def interp_va(
             print(out[key])
 
     outdf = pd.DataFrame.from_dict(out)
-    outdf['Sigma'] = x
+    outdf['Sigma'] = x[1:]
     return outdf
 
 
