@@ -5,9 +5,9 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 with open("smokelite/__init__.py", "r") as fh:
-    for l in fh:
-        if l.startswith('__version__'):
-            exec(l)
+    for line in fh:
+        if line.startswith('__version__'):
+            exec(line)
             break
     else:
         __version__ = 'x.y.z'
@@ -28,9 +28,7 @@ setuptools.setup(
         + "replacement."
     ),
     packages=setuptools.find_packages(),
-    package_dir={'smokelite': 'smokelite'}
-    package_data={'pykpp.models': ['*.eqn', '*.txt', '*.kpp', '*.def']},
-    },
+    package_dir={'smokelite': 'smokelite'},
     install_requires=[
         'numpy', 'scipy', 'pandas', 'pyproj', 'pseudonetcdf'
     ]
