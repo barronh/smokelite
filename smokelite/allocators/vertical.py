@@ -81,19 +81,41 @@ def interp_va(
         invert = True
     else:
         invert = False
+
+    if verbose > 0:
+        print(x)
+        print(xp)
+
     out = OrderedDict()
 
     for key in va_df.columns:
-        fp = np.cumsum(np.append(0, va_df[key].values))
+        if key in metakeys:
+            # Pressure and sigma should not have a 0 surface value
+            # Layer heights should, but all metakeys are treated the same.
+            fp = np.append(va_df[key].values[0], va_df[key].values)
+        else:
+            # The fraction at the surface (i.e., below layer 1)
+            # is 0
+            fp = np.cumsum(np.append(0, va_df[key].values))
+
         if invert:
             fp = fp[::-1]
-        out[key] = np.diff(np.interp(x, xp, fp, left=0, right=0))
-        if key not in metakeys:
+
+        leftval = None
+        rightval = None
+        # Left 1 assumes the cumulative sum
+        interpvals = np.interp(x, xp, fp, left=leftval, right=rightval)
+        if verbose > 0:
+            print(key)
+            print(fp)
+        if verbose > 1:
+            print(interpvals)
+        if key in metakeys:
+            out[key] = interpvals[1:]
+        else:
+            out[key] = np.diff(interpvals)
             out[key] /= out[key].sum()
         if verbose:
-            print(key)
-            print(xp)
-            print(fp)
             print(out[key])
 
     outdf = pd.DataFrame.from_dict(out)
@@ -222,6 +244,12 @@ class Vertical:
         else:
             self.indf = pd.read_csv(csvpath, **read_kwds)
 
+        if self.pressurekey not in self.indf.columns:
+            add_pressure(
+                self.indf, ptop=csvvgtop, psfc=psfc, sigmakey=sigmakey,
+                pressurekey=pressurekey, inplace=True
+            )
+
         if metakeys is None:
             metakeys = [
                 key
@@ -232,12 +260,6 @@ class Vertical:
 
         self.metakeys = metakeys
 
-        if self.pressurekey not in self.indf.columns:
-            add_pressure(
-                self.indf, ptop=csvvgtop, psfc=psfc, sigmakey=sigmakey,
-                pressurekey=pressurekey, inplace=True
-            )
-
         # Interp_va ignores first outvglvls level automatically
         outdf = interp_va(
             self.indf, outvglvls, vgtop=outvgtop, psfc=psfc,
@@ -245,11 +267,11 @@ class Vertical:
         )
         outdf.loc[:, 'LAYER1'] = 0
         outdf.loc[0, 'LAYER1'] = 1
-        layerused = outdf.drop(self.metakeys, axis=1).values.sum(1) > 0
+        layerused = outdf.drop(self.metakeys, axis=1).values.sum(1) != 0
         layerused[0] = True
         if not prune:
             layerused[:] = True
-        usedupto = np.cumsum(layerused[::-1])[::-1] > 0
+        usedupto = np.cumsum(layerused[::-1])[::-1] != 0
         self.outdf = outdf.loc[usedupto]
 
     def allocate(self, infile, alloc_keys, outpath=None, save_kwds=None):
