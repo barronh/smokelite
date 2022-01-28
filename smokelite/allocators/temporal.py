@@ -656,7 +656,7 @@ R0: Preliminary data
             outf.updatemeta()
             outf.updatetflag(overwrite=True)
 
-        history = getattr(outf, 'HISTORY')
+        history = getattr(outf, 'HISTORY', '')
         history += f'apply_temporal({locals})'
         setattr(outf, 'HISTORY', history)
         if outpath is not None and remove:
