@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import PseudoNetCDF as pnc
 
+
 known_sectors = [
     'AG_WASTE_BURN', 'AGRICULTURE', 'AIR', 'AIR_CDS', 'AIR_CRS', 'AIR_LTO',
     'ENERGY', 'INDUSTRY', 'LS_BIOBURN', 'RESIDENTIAL', 'SHIPS', 'TRANSPORT'
@@ -122,7 +123,7 @@ class Temporal:
         Initial Temporal Allocation object
 
         Any paths that do not exist will need to be made using the associated
-        get_<>file method (e.g., get_monthlyfile), which are separately
+        make_<>file method (e.g., make_monthlyfile), which are separately
         documented.
 
         Arguments
@@ -164,12 +165,36 @@ class Temporal:
         self.monthlypath = monthlypath
         self.timezonepath = timezonepath
         self.griddescpath = griddescpath
-        self.timezonefile = None
-        self.monthlyfile = None
-        self.dayofweekfile = None
-        self.diurnalfile = None
+        self._timezonefile = None
+        self._monthlyfile = None
+        self._dayofweekfile = None
+        self._diurnalfile = None
 
-    def get_diurnalfile(self, propath=None, read_kwds=None):
+    @property
+    def monthlyfile(self):
+        if self._monthlyfile is None:
+            self.make_monthlyfile()
+        return self._monthlyfile
+
+    @property
+    def diurnalfile(self):
+        if self._diurnalfile is None:
+            self.make_diurnalfile()
+        return self._diurnalfile
+
+    @property
+    def dayofweekfile(self):
+        if self._dayofweekfile is None:
+            self.make_dayofweekfile()
+        return self._dayofweekfile
+
+    @property
+    def timezonefile(self):
+        if self._timezonefile is None:
+            self.make_timezonefile()
+        return self._timezonefile
+
+    def make_diurnalfile(self, propath=None, read_kwds=None):
         """
         Arguments
         ---------
@@ -183,11 +208,11 @@ class Temporal:
                 IOAPI-like file with hourly allocations  for sectors (as
                 variables) with shape TSTEP=25, LAY=7, ROW=NROWS, COL=NCOLS
         """
-        if self.diurnalfile is not None:
-            return self.diurnalfile
+        if self._diurnalfile is not None:
+            return self._diurnalfile
         elif os.path.exists(self.diurnalpath):
-            self.diurnalfile = pnc.pncopen(self.diurnalpath, format='ioapi')
-            return self.get_diurnalfile()
+            self._diurnalfile = pnc.pncopen(self.diurnalpath, format='ioapi')
+            return self._diurnalfile
 
         if propath is None:
             raise KeyError(
@@ -201,7 +226,7 @@ class Temporal:
             read_kwds = dict(comment='#', index_col=0)
 
         hrdf = pd.read_csv(propath, **read_kwds)
-        tzf = self.get_timezonefile()
+        tzf = self.timezonefile
 
         hr_f = tzf.subset([])
         hr_f.createDimension('TSTEP', 25).setunlimited(True)
@@ -216,30 +241,34 @@ class Temporal:
             hourvals = hourfactor(hrdf, hridx, tzf)
             hrvar = hr_f.createVariable(
                 label, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
-                long_name=label, var_desc=label, units='s/s'
+                long_name=label, units='s/s',
+                var_desc=(
+                    f'{label} convert day-mean to hourly instantaneous rates'
+                )
             )
             hrvar[:] = hourvals[:, None]
 
         hr_f.updatemeta()
         hr_f.updatetflag(overwrite=True)
+
         hr_f.FILEDESC = """
 ## NASA-like metadata
 1, 2310
-Henderson, Barron
-US EPA/Office of Air Quality Planning and Standards
+Unknown, Unknown
+Unknown
 EPA sector-based hourly profiles
 Not Applicable
 1, 1
-2021, 01, 13, 2021, 01, 13
+2020, 01, 01, 2020, 01, 01
 0
 ...
-PI_CONTACT_INFO: henderson.barron@epa.gov
+PI_CONTACT_INFO: unknown@unknown.com
 PLATFORM: CMAQ Emission processing input
-DATA_INFO:  All data in hourly average per second rates
+DATA_INFO:  All data in time fractions
 UNCERTAINTY:  large, preliminary data based on US averages.
-DM_CONTACT_INFO: Henderson, Barron, US EPA, henderson.barron@epa.gov
+DM_CONTACT_INFO: Unknown, Unknown, Unknown, unknown@unknown.com
 PROJECT_INFO: For easy processing processing of emissions.
-STIPULATIONS_ON_USE: Use of these data requires PI notification
+STIPULATIONS_ON_USE: Use at your own risk.
 OTHER_COMMENTS: None.
 REVISION: R0
 R0: Preliminary data
@@ -247,9 +276,9 @@ R0: Preliminary data
         hr_f.save(
             self.diurnalpath, format='NETCDF4_CLASSIC', complevel=1, verbose=0
         ).close()
-        return self.get_diurnalfile()
+        return self.make_diurnalfile()
 
-    def get_dayofweekfile(self, propath=None, read_kwds=None):
+    def make_dayofweekfile(self, propath=None, read_kwds=None):
         """
         Arguments
         ---------
@@ -265,13 +294,13 @@ R0: Preliminary data
                 variables) with shape  TSTEP=7, LAY=1, ROW=NROWS, COL=NCOLS
         """
 
-        if self.dayofweekfile is not None:
-            return self.dayofweekfile
+        if self._dayofweekfile is not None:
+            return self._dayofweekfile
         elif os.path.exists(self.dayofweekpath):
-            self.dayofweekfile = pnc.pncopen(
+            self._dayofweekfile = pnc.pncopen(
                 self.dayofweekpath, format='ioapi'
             )
-            return self.get_dayofweekfile()
+            return self.dayofweekfile
 
         if propath is None:
             raise KeyError(
@@ -289,7 +318,7 @@ R0: Preliminary data
         wkdf = pd.read_csv(propath, **read_kwds)
 
         wkdf.index.name = 'profile_id'
-        tzf = self.get_timezonefile()
+        tzf = self.timezonefile
 
         day_f = tzf.subset([])
         day_f.createDimension('TSTEP', 25).setunlimited(True)
@@ -307,7 +336,8 @@ R0: Preliminary data
             wkvals = weekdayfactor(wkdf, wkidx, tzf)
             wkvar = day_f.createVariable(
                 label, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
-                long_name=label, var_desc=label, units='s/s'
+                long_name=label, units='s/s',
+                var_desc=f'{label} convert monthly-mean rates to weekday-mean'
             )
             wkvar[:] = wkvals
 
@@ -317,21 +347,21 @@ R0: Preliminary data
             """
 ## NASA-like metadata
 1, 2310
-Henderson, Barron
-US EPA/Office of Air Quality Planning and Standards
+Unknown, Unknown
+Unknown
 EPA sector-based hourly profiles
 Not Applicable
 1, 1
-2021, 01, 13, 2021, 01, 13
+2020, 01, 01, 2020, 01, 01
 0
 ...
-PI_CONTACT_INFO: henderson.barron@epa.gov
+PI_CONTACT_INFO: unknown@unknown.com
 PLATFORM: CMAQ Emission processing input
-DATA_INFO:  All data in daily average per second rates
+DATA_INFO:  All data in time fractions
 UNCERTAINTY:  large, preliminary data based on US averages.
-DM_CONTACT_INFO: Henderson, Barron, US EPA, henderson.barron@epa.gov
+DM_CONTACT_INFO: Unknown, Unknown, Unknown, unknown@unknown.com
 PROJECT_INFO: For easy processing processing of emissions.
-STIPULATIONS_ON_USE: Use of these data requires PI notification
+STIPULATIONS_ON_USE: Use at your own risk.
 OTHER_COMMENTS: The LAY dimension is day of the week (Mon, Tue, ..., Sun)."""
             + "Time is UTC, but the profiles are based on LST days. So, "
             + "UTC_Mon will include hours from Sun and Tue as appropriate "
@@ -344,9 +374,9 @@ R0: Preliminary data
             self.dayofweekpath, format='NETCDF4_CLASSIC', complevel=1,
             verbose=0
         ).close()
-        return self.get_dayofweekfile()
+        return self.dayofweekfile
 
-    def get_monthlyfile(self, propath=None, read_kwds=None):
+    def make_monthlyfile(self, propath=None, read_kwds=None):
         """
         Arguments
         ---------
@@ -362,11 +392,11 @@ R0: Preliminary data
                 variables) with shape TSTEP=12, LAY=1, ROW=NROWS, COL=NCOLS
         """
 
-        if self.monthlyfile is not None:
-            return self.monthlyfile
+        if self._monthlyfile is not None:
+            return self._monthlyfile
         elif os.path.exists(self.monthlypath):
-            self.monthlyfile = pnc.pncopen(self.monthlypath, format='ioapi')
-            return self.get_monthlyfile()
+            self._monthlyfile = pnc.pncopen(self.monthlypath, format='ioapi')
+            return self.monthlyfile
         if propath is None:
             raise KeyError(
                 f'propath required because {self.monthlypath} not found'
@@ -381,7 +411,7 @@ R0: Preliminary data
             read_kwds = dict(comment='#', index_col=0, names=names)
 
         mondf = pd.read_csv(propath, **read_kwds)
-        tzf = self.get_timezonefile()
+        tzf = self.timezonefile
 
         mon_f = tzf.subset([])
         mon_f.createDimension('TSTEP', 12).setunlimited(True)
@@ -396,7 +426,8 @@ R0: Preliminary data
             monvals = monfactor(mondf, monidx, tzf)
             monvar = mon_f.createVariable(
                 label, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
-                long_name=label, var_desc=label, units='s/s'
+                long_name=label, units='y/s',
+                var_desc=f'{label} convert from rates in 1/y to 1/s month'
             )
             monvar[:] = monvals[:, None]
 
@@ -405,21 +436,21 @@ R0: Preliminary data
         mon_f.FILEDESC = """
 ## NASA-like metadata
 1, 2310
-Henderson, Barron
-US EPA/Office of Air Quality Planning and Standards
+Unknown, Unknown
+Unknown
 EPA sector-based hourly profiles
 Not Applicable
 1, 1
-2021, 01, 13, 2021, 01, 13
+2020, 01, 01, 2020, 01, 01
 0
 ...
-PI_CONTACT_INFO: henderson.barron@epa.gov
+PI_CONTACT_INFO: unknown@unknown.com
 PLATFORM: CMAQ Emission processing input
-DATA_INFO:  All data in monthly average per second rates
+DATA_INFO:  All data in time fractions
 UNCERTAINTY:  large, preliminary data based on US averages.
-DM_CONTACT_INFO: Henderson, Barron, US EPA, henderson.barron@epa.gov
+DM_CONTACT_INFO: Unknown, Unknown, Unknown, unknown@unknown.com
 PROJECT_INFO: For easy processing processing of emissions.
-STIPULATIONS_ON_USE: Use of these data requires PI notification
+STIPULATIONS_ON_USE: Use at your own risk.
 OTHER_COMMENTS: None.
 REVISION: R0
 R0: Preliminary data
@@ -427,14 +458,14 @@ R0: Preliminary data
         mon_f.save(
             self.monthlypath, format='NETCDF4_CLASSIC', complevel=1, verbose=0
         ).close()
-        return self.get_monthlyfile()
+        return self.monthlyfile
 
-    def get_timezonefile(self):
+    def make_timezonefile(self):
         if self.timezonefile is not None:
             return self.timezonefile
         elif os.path.exists(self.timezonepath):
             self.timezonefile = pnc.pncopen(self.timezonepath, format='ioapi')
-            return self.get_timezonefile()
+            return self.timezonefile
         print(
             f'{self.timezonepath} not available;'
             ' calculating UTCOFFSET in hours from longitude...', end=''
@@ -469,7 +500,7 @@ R0: Preliminary data
         ).close()
         print('done')
 
-        return self.get_timezonefile()
+        return self.timezonefile
 
     def get_factor(
         self, sector, refdate,
@@ -478,7 +509,7 @@ R0: Preliminary data
         if diurnal:
             if verbose > 0:
                 print('Opening diurnal', flush=True)
-            diurnalf = self.get_diurnalfile()
+            diurnalf = self.diurnalfile
             hfac = diurnalf.variables[sector][:]
         else:
             hfac = 1  # no need because data is already hourly
@@ -486,7 +517,7 @@ R0: Preliminary data
         if dayofweek:
             if verbose > 0:
                 print('Opening dayofweek', flush=True)
-            dayofweekf = self.get_dayofweekfile()
+            dayofweekf = self.dayofweekfile
             # Mon = 0
             dayidx = refdate.dayofweek
             dayfac = dayofweekf.variables[sector][:, dayidx][:, None]
@@ -496,7 +527,7 @@ R0: Preliminary data
         if monthly:
             if verbose > 0:
                 print('Opening monthly', flush=True)
-            monthf = self.get_monthlyfile()
+            monthf = self.monthlyfile
             # Jan = 0
             monidx = refdate.month - 1
             monfac = monthf.variables[sector][monidx]
@@ -667,6 +698,22 @@ R0: Preliminary data
         else:
             outf.save(outpath, verbose=0).close()
             return pnc.pncopen(outpath, format='ioapi')
+
+    def get_diurnalfile(self, *args, **kwds):
+        raise DeprecationWarning('Use make_diurnalfile instead')
+        return self.make_diurnalfile(*args, **kwds)
+
+    def get_dayofweekfile(self, *args, **kwds):
+        raise DeprecationWarning('Use make_dayofweekfile instead')
+        return self.make_dayofweekfile(*args, **kwds)
+
+    def get_monthlyfile(self, *args, **kwds):
+        raise DeprecationWarning('Use make_monthlyfile instead')
+        return self.make_monthlyfile(*args, **kwds)
+
+    def get_timezonefile(self, *args, **kwds):
+        raise DeprecationWarning('Use make_timezonefile instead')
+        return self.make_timezonefile(*args, **kwds)
 
 
 def run():
