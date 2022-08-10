@@ -193,7 +193,237 @@ def make3d(infile, layerfractions, vglvls):
     return outfile
 
 
-class Vertical:
+class Height:
+    def __init__(
+        self, layerfile=None, layerdf=None, gcro3dfile=None, csv_kwds=None,
+        bottom='bottom', top='top'
+    ):
+        """
+        Initialization with layerfile, layerdf, gcro3dfile keywords is
+        equivalent to:
+
+            ha = Height()
+            ha.load3d(layerfile)
+            ha.add_layerdf(layerdf, **csv_kwds)
+            ha.make3d(gcro3dfile)
+
+        This is equivalent to loading a preexising file, collecting a dataframe
+        and then using that data frame to calculate new allocation factors
+        using the gcro3dfile for heights. New factors are added to old factors.
+
+        Arguments
+        ---------
+        layerfile : str or NetCDF-like object
+            path to previously allocated results
+        layerdf : str or pd.DataFrame
+            path to vertical allocation file or DataFrame already opened. Each
+            key represents a value to use as a fractional allocation to this
+            level.
+        csv_kwds : mappable
+            keywords for pandas to read layerdf
+        gcro3dfile : str or NetCDF-like
+            path to or object of IOAPI file with ZF variable expressing level
+            full heights in meters
+        bottom : str
+            key for bottom height in meters
+        top : str
+            key for top height in meters
+        verbose : int
+            verbosity level increasing from 0 (quiet)
+
+        Returns
+        -------
+        """
+        if csv_kwds is None:
+            csv_kwds = {}
+
+        self.bottom = bottom
+        self.top = top
+
+        self.layerfile = None
+        if layerfile is not None:
+            self.load3d(layerfile)
+
+        if layerdf is None:
+            self.layerdf = None
+        else:
+            self.add_layerdf(layerdf, **csv_kwds)
+
+        if gcro3dfile is not None:
+            self.make3d(gcro3dfile)
+
+    def add_layerdf(self, layerdf, **csv_kwds):
+        """
+        Arguments
+        ---------
+
+        Returns
+        -------
+        """
+        if isinstance(layerdf, str):
+            self.layerdf = pd.read_csv(layerdf, **csv_kwds)
+        else:
+            self.layerdf = layerdf.copy()
+
+        self.layerdf.sort_values(by=[self.bottom, self.top], inplace=True)
+
+    def load3d(self, layerfile, prune=False, zfkey='ZF'):
+        """
+        Arguments
+        ---------
+        layerfile : str or NetCDF-like object
+            path to or object of NetCDF file with variables that are
+            fractions.
+        prune : bool
+            if true, remove layers with zero allocation
+        Returns
+        -------
+        """
+        if isinstance(layerfile, str):
+            layerfile = pnc.pncopen(layerfile, format='ioapi')
+
+        if self.layerfile is None:
+            self.layerfile = layerfile
+        else:
+            for key, var in layerfile.variables.items():
+                if key in self.layerfile.variables:
+                    print(f'{key} overwitten durign load3d')
+                self.layerfile.copyVariable(var, key=key)
+
+        if prune:
+            maxlay = 0
+            for key, var in self.layerfile.variables.items():
+                if (
+                    var.dimensions != ('TSTEP', 'LAY', 'ROW', 'COL')
+                    or key == zfkey
+                ):
+                    continue
+                vmax = var[:].max((0, 2, 3))
+                maxlay = max(np.cumsum(vmax[::-1])[::-1].argmin(), maxlay)
+            self.layerfile = self.layerfile.slice(LAY=slice(None, maxlay))
+
+    def make3d(
+        self, gcro3dfile, zfkey='ZF', outpath=None, layer1=None,
+        prune=False, verbose=0
+    ):
+        """
+        Arguments
+        ---------
+        gcro3dfile: str or NetCDF-like object
+            path to or object of NetCDF file with variables that are
+            fractions.
+        zfkey : str
+            key for the full height in meters variable. almost always ZF
+        outpath : str
+            path to persist the 3d allocations for reuse
+        layer1 : str
+            if not None, add a layer1 variable with the name layer1
+        prune : bool
+            Remove unused vertical layers from the top
+        verbose : int
+            verbosity level
+
+        Returns
+        -------
+        None
+        """
+        if self.layerdf is None:
+            raise ValueError(
+                'layerdf is None; use add_layerdf to initialize layerdf before'
+                + ' make3d'
+            )
+        zfile = pnc.pncopen(
+            gcro3dfile, format='ioapi'
+        ).subset([zfkey])
+        zf = zfile.variables[zfkey]
+        xp = np.append(
+            self.layerdf[self.top].iloc[0],
+            self.layerdf[self.top].values
+        )
+        layerdf = self.layerdf
+
+        for key in layerdf.columns:
+            if key not in (self.bottom, self.top):
+                lvals = layerdf[key]
+                if not pd.api.types.is_numeric_dtype(lvals):
+                    print('Skipping', key)
+                    continue
+                yp = np.cumsum(np.append(0, lvals))
+                layfracfunc = (
+                    lambda x: np.maximum(0, np.diff(np.interp(
+                        np.append(0, x), xp, yp, right=yp.max(), left=0)
+                    ))
+                )
+                outvals = np.apply_along_axis(layfracfunc, axis=1, arr=zf)
+                outv = zfile.copyVariable(zf, key=key)
+                outv.long_name = key.ljust(16)
+                outv.var_desc = key.ljust(80)
+                outv.units = '1'
+                outv[:] = outvals
+
+        if layer1 is not None:
+            lay1v = zfile.copyVariable(outv, key=layer1, withdata=False)
+            lay1v.long_name = layer1.ljust(16)
+            lay1v.var_desc = layer1.ljust(80)
+            lay1v[0, 0] = 1
+
+        if outpath is not None:
+            diskf = zfile.save(outpath, complevel=1, verbose=verbose)
+            diskf.close()
+            self.load3d(outpath, prune=prune, zfkey=zfkey)
+        else:
+            self.load3d(zfile, prune=prune)
+
+    def allocate(self, infile, alloc_keys=None, **kwds):
+        """
+        Arguments
+        ---------
+
+        Returns
+        -------
+        """
+        outf = infile.subset([])
+        outf.copyDimension(self.layerfile.dimensions['LAY'], key='LAY')
+        outf.VGLVLS = self.layerfile.VGLVLS
+        outf.VGTOP = self.layerfile.VGTOP
+
+        delattr(outf, 'VAR-LIST')
+        if isinstance(alloc_keys, str):
+            alloc_keys = {alloc_keys: None}
+        nones = []
+        assigned_keys = []
+        for laykey, varkeys in alloc_keys.items():
+            if varkeys is None:
+                nones.append(laykey)
+            else:
+                assigned_keys.extend(varkeys)
+
+        if len(nones) > 1:
+            raise ValueError(f'Can only have 1 None value, got more: {nones}')
+
+        assigned_keys = list(set(assigned_keys))
+        all_keys = [
+            k for k, v in infile.variables.items()
+            if 'LAY' in v.dimensions
+        ]
+        unassigned_keys = set(all_keys).difference(assigned_keys)
+
+        if len(nones) > 0:
+            alloc_keys[nones[0]] = unassigned_keys
+
+        for laykey, varkeys in alloc_keys.items():
+            layval = self.layerfile.variables[laykey][:]
+            for key in varkeys:
+                var = infile.variables[key]
+                outv = outf.copyVariable(var, key=key, withdata=False)
+                outv[:] = var[:] * layval
+
+        outf.updatemeta()
+        outf.updatetflag()
+        return outf
+
+
+class Sigma:
     def __init__(
         self, csvpath, outvglvls, outvgtop, read_kwds=None,
         pressurekey='Pressure', sigmakey='Sigma', csvvgtop=5000.,
