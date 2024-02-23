@@ -176,11 +176,19 @@ class Temporal:
             self.make_monthlyfile()
         return self._monthlyfile
 
+    @monthlyfile.setter
+    def monthlyfile(self, monthlyfile):
+        self._monthlyfile = monthlyfile
+
     @property
     def diurnalfile(self):
         if self._diurnalfile is None:
             self.make_diurnalfile()
         return self._diurnalfile
+
+    @diurnalfile.setter
+    def diurnalfile(self, diurnalfile):
+        self._diurnalfile = diurnalfile
 
     @property
     def dayofweekfile(self):
@@ -188,22 +196,32 @@ class Temporal:
             self.make_dayofweekfile()
         return self._dayofweekfile
 
+    @dayofweekfile.setter
+    def dayofweekfile(self, dayofweekfile):
+        self._dayofweekfile = dayofweekfile
+
     @property
     def timezonefile(self):
         if self._timezonefile is None:
             self.make_timezonefile()
         return self._timezonefile
 
+    @timezonefile.setter
+    def timezonefile(self, timezonefile):
+        self._timezonefile = timezonefile
+
     def make_diurnalfile(self, propath=None, read_kwds=None):
         """
         Arguments
         ---------
         propath : str
-            path to tpro file ATPRO_HOURLY file
+            path to tpro file ATPRO_HOURLY file. Must have 26 columns:
+            profile_id, hour1, ... hour24, comment
         read_kwds : dict or None
             If None, default read_kwds are (comment='#', index_col=0)
 
-        Returns:
+        Returns
+        -------
             df : PseudoNetCDFFile
                 IOAPI-like file with hourly allocations  for sectors (as
                 variables) with shape TSTEP=25, LAY=7, ROW=NROWS, COL=NCOLS
@@ -226,6 +244,8 @@ class Temporal:
             read_kwds = dict(comment='#', index_col=0)
 
         hrdf = pd.read_csv(propath, **read_kwds)
+        if 'comment' not in hrdf.columns:
+            hrdf['comment'] = hrdf.index.values
         tzf = self.timezonefile
 
         hr_f = tzf.subset([])
@@ -241,9 +261,9 @@ class Temporal:
             hourvals = hourfactor(hrdf, hridx, tzf)
             hrvar = hr_f.createVariable(
                 label, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
-                long_name=label, units='s/s',
+                long_name=label, units='1',
                 var_desc=(
-                    f'{label} convert day-mean to hourly instantaneous rates'
+                    f'Scale a {label} daily rate 25 instantaneous hourly rates'
                 )
             )
             hrvar[:] = hourvals[:, None]
@@ -283,10 +303,13 @@ R0: Preliminary data
         Arguments
         ---------
         propath : str
-            path to tpro file ATPRO_WEEKLY file
+            path to tpro file ATPRO_WEEKLY file. Requires columns
+            Mon, Tue, Wed, Thu, Fri, Sat, Sun, and comment.
         read_kwds : dict or None
             If None, default read_kwds are dict(comment='#', index_col=0,
             names=['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'comment'])
+            which is equivalent to ignoring comments, indexing the first column
+            and having no header row.
 
         Returns:
             df : PseudoNetCDFFile
@@ -316,6 +339,8 @@ R0: Preliminary data
                 names='Mon Tue Wed Thu Fri Sat Sun comment'.split()
             )
         wkdf = pd.read_csv(propath, **read_kwds)
+        if 'comment' not in wkdf.columns:
+            wkdf['comment'] = wkdf.index.values
 
         wkdf.index.name = 'profile_id'
         tzf = self.timezonefile
@@ -336,8 +361,8 @@ R0: Preliminary data
             wkvals = weekdayfactor(wkdf, wkidx, tzf)
             wkvar = day_f.createVariable(
                 label, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
-                long_name=label, units='s/s',
-                var_desc=f'{label} convert monthly-mean rates to weekday-mean'
+                long_name=label, units='1',
+                var_desc=f'Scale a {label} monthly rate to a 7 weekday-specific rates'
             )
             wkvar[:] = wkvals
 
@@ -381,10 +406,13 @@ R0: Preliminary data
         Arguments
         ---------
         propath : str
-            path to tpro file ATPRO_MONTHLY file
+            path to tpro file ATPRO_MONTHLY file. Requires columns:
+            Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Nov, Dec, comment
         read_kwds : dict or None
             If None, default read_kwds are dict(comment='#', index_col=0,
             names=['Jan', ..., 'Dec', 'comment'])
+            which is equivalent to ignoring comments, indexing the first column
+            and having no header row.
 
         Returns:
             df : PseudoNetCDFFile
@@ -411,6 +439,9 @@ R0: Preliminary data
             read_kwds = dict(comment='#', index_col=0, names=names)
 
         mondf = pd.read_csv(propath, **read_kwds)
+        if 'comment' not in hrdf.columns:
+            hrdf['comment'] = hrdf.index.values
+
         tzf = self.timezonefile
 
         mon_f = tzf.subset([])
@@ -426,8 +457,8 @@ R0: Preliminary data
             monvals = monfactor(mondf, monidx, tzf)
             monvar = mon_f.createVariable(
                 label, 'f', ('TSTEP', 'LAY', 'ROW', 'COL'),
-                long_name=label, units='y/s',
-                var_desc=f'{label} convert from rates in 1/y to 1/s month'
+                long_name=label, units='1',
+                var_desc=f'Scale a {label} annual rate to 12 monthly rate'
             )
             monvar[:] = monvals[:, None]
 
@@ -461,11 +492,11 @@ R0: Preliminary data
         return self.monthlyfile
 
     def make_timezonefile(self):
-        if self.timezonefile is not None:
-            return self.timezonefile
+        if self._timezonefile is not None:
+            return self._timezonefile
         elif os.path.exists(self.timezonepath):
-            self.timezonefile = pnc.pncopen(self.timezonepath, format='ioapi')
-            return self.timezonefile
+            self._timezonefile = pnc.pncopen(self.timezonepath, format='ioapi')
+            return self._timezonefile
         print(
             f'{self.timezonepath} not available;'
             ' calculating UTCOFFSET in hours from longitude...', end=''
@@ -700,19 +731,23 @@ R0: Preliminary data
             return pnc.pncopen(outpath, format='ioapi')
 
     def get_diurnalfile(self, *args, **kwds):
-        raise DeprecationWarning('Use make_diurnalfile instead')
+        import warnings
+        warnings.warn('Use make_diurnalfile instead', DeprecationWarning)
         return self.make_diurnalfile(*args, **kwds)
 
     def get_dayofweekfile(self, *args, **kwds):
-        raise DeprecationWarning('Use make_dayofweekfile instead')
+        import warnings
+        warnings.warn('Use make_dayofweekfile instead', DeprecationWarning)
         return self.make_dayofweekfile(*args, **kwds)
 
     def get_monthlyfile(self, *args, **kwds):
-        raise DeprecationWarning('Use make_monthlyfile instead')
+        import warnings
+        warnings.warn('Use make_monthlyfile instead', DeprecationWarning)
         return self.make_monthlyfile(*args, **kwds)
 
     def get_timezonefile(self, *args, **kwds):
-        raise DeprecationWarning('Use make_timezonefile instead')
+        import warnings
+        warnings.warn('Use make_timezonefile instead', DeprecationWarning)
         return self.make_timezonefile(*args, **kwds)
 
 

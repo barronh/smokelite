@@ -12,4 +12,4 @@ from .allocators.spatial import Spatial
 
 Vertical = Sigma
 
-__version__ = '0.2'
+__version__ = '0.3'
